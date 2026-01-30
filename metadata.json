@@ -1,0 +1,8 @@
+{
+  "name": "SomaRush //  Engenharia GEO",
+  "description": "Console técnico para Otimização de Motores Generativos (GEO). Analise legibilidade por máquina, rastreie citações de marca e estruture dados para ingestão por IA.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
