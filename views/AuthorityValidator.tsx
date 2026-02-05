@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { generateStrategicQuestions, probeModelResponse } from '../services/gemini';
+import { generateStrategicQuestions, probeModelResponse, analyzeBrandSentiment } from '../services/gemini';
 import Terminal from '../components/Terminal';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ICONS } from '../constants';
@@ -21,7 +21,7 @@ const mockHistoryData: MonitoringLog[] = [
 ];
 
 const AuthorityValidator: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'PROBE' | 'SENTINEL'>('PROBE');
+  const [activeTab, setActiveTab] = useState<'PROBE' | 'SENTINEL' | 'SOCIAL'>('PROBE');
   const [brand, setBrand] = useState('');
   const [variations, setVariations] = useState('');
   const [topic, setTopic] = useState('');
@@ -29,6 +29,7 @@ const AuthorityValidator: React.FC = () => {
   const [isBusy, setIsBusy] = useState(false);
   const [results, setResults] = useState<ProbeResult[]>([]);
   const [somScore, setSomScore] = useState<number | null>(null);
+  const [sentimentData, setSentimentData] = useState<any>(null);
 
   // Sentinel Settings
   const [alertSettings, setAlertSettings] = useState<AlertSettings>({
@@ -46,32 +47,35 @@ const AuthorityValidator: React.FC = () => {
     setIsBusy(true);
     setResults([]);
     setSomScore(null);
-    
-    const brandsToSearch = [
-      brand.toLowerCase(),
-      ...variations.split(',').map(v => v.trim().toLowerCase()).filter(v => v !== '')
-    ];
+    setSentimentData(null);
+
+    // ... logic for PROBE simulation ...
 
     setLogs([
-      `📡 INICIANDO SONDAGEM DE AUTORIDADE v2.2`,
+      `📡 INICIANDO SONDAGEM DE AUTORIDADE v3.5`,
       `ALVO: ${brand.toUpperCase()}`,
-      `STATUS: ATIVANDO PROTOCOLO SENTINELA...`,
+      `STATUS: ATIVANDO PROTOCOLO SENTINELA & BRAND PULSE...`,
       '🧠 GERANDO QUESTIONÁRIO ESTRATÉGICO...'
     ]);
 
     try {
+      // 1. Run Authority Probe
       const questions = await generateStrategicQuestions(topic);
       setLogs(prev => [...prev, `✅ ${questions.length} PERGUNTAS GERADAS.`]);
 
       const probeResults: ProbeResult[] = [];
       let citations = 0;
+      const brandsToSearch = [
+        brand.toLowerCase(),
+        ...variations.split(',').map(v => v.trim().toLowerCase()).filter(v => v !== '')
+      ];
 
       for (let i = 0; i < questions.length; i++) {
         const question = questions[i];
         setLogs(prev => [...prev, `❓ SONDANDO: "${question}"`]);
         const response = await probeModelResponse(question);
         const cited = brandsToSearch.some(v => response.toLowerCase().includes(v));
-        
+
         if (cited) {
           citations++;
           setLogs(prev => [...prev, '✅ MARCA DETECTADA NA RESPOSTA.']);
@@ -89,8 +93,15 @@ const AuthorityValidator: React.FC = () => {
 
       const score = (citations / questions.length) * 100;
       setSomScore(score);
+
+      // 2. Run Brand Pulse (Social Sentiment) - NEW v3.5
+      setLogs(prev => [...prev, '🔍 INICIANDO SOCIAL LISTENING (REDDIT/FORUMS)...']);
+      const sentiment = await analyzeBrandSentiment(brand);
+      setSentimentData(sentiment);
+      setLogs(prev => [...prev, `💬 SENTIMENTO: ${sentiment.sentimentScore > 0 ? 'POSITIVO' : 'NEGATIVO'} (${sentiment.citationVelocity})`]);
+
       setLogs(prev => [
-        ...prev, 
+        ...prev,
         '='.repeat(40),
         `📊 SHARE OF MODEL: ${score}%`,
         `STATUS: ${score > 50 ? 'DOMINÂNCIA' : 'RISCO DE INVISIBILIDADE'}`,
@@ -112,17 +123,23 @@ const AuthorityValidator: React.FC = () => {
           <p className="text-cyan-600 text-sm">Vigilância Ativa de Share of Model & Inteligência Competitiva</p>
         </div>
         <div className="flex bg-black p-1 rounded border border-cyan-900/30">
-          <button 
+          <button
             onClick={() => setActiveTab('PROBE')}
             className={`px-4 py-1.5 text-[10px] font-bold uppercase transition-all rounded ${activeTab === 'PROBE' ? 'bg-cyan-500 text-black shadow-[0_0_10px_rgba(34,211,238,0.3)]' : 'text-cyan-800 hover:text-cyan-500'}`}
           >
             Sondagem_Manual
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('SENTINEL')}
             className={`px-4 py-1.5 text-[10px] font-bold uppercase transition-all rounded ${activeTab === 'SENTINEL' ? 'bg-purple-600 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]' : 'text-purple-900 hover:text-purple-500'}`}
           >
             Modo_Sentinela
+          </button>
+          <button
+            onClick={() => setActiveTab('SOCIAL')}
+            className={`px-4 py-1.5 text-[10px] font-bold uppercase transition-all rounded ml-2 ${activeTab === 'SOCIAL' ? 'bg-orange-600 text-white shadow-[0_0_10px_rgba(234,88,12,0.3)]' : 'text-orange-900 hover:text-orange-500'}`}
+          >
+            Social_Pulse (v3.5)
           </button>
         </div>
       </div>
@@ -133,10 +150,10 @@ const AuthorityValidator: React.FC = () => {
           {activeTab === 'PROBE' ? (
             <form onSubmit={handleRunSimulation} className="industrial-border bg-black/40 p-6 rounded space-y-4">
               <h3 className="text-xs font-bold text-cyan-800 uppercase mb-4">Parâmetros de Missão</h3>
-              
+
               <div className="space-y-1">
                 <label className="text-[10px] text-cyan-700 uppercase font-bold tracking-widest">Marca / Target</label>
-                <input 
+                <input
                   value={brand}
                   onChange={(e) => setBrand(e.target.value)}
                   className="w-full bg-black industrial-border p-3 rounded text-sm text-cyan-400 focus:ring-1 focus:ring-cyan-500 outline-none"
@@ -147,7 +164,7 @@ const AuthorityValidator: React.FC = () => {
 
               <div className="space-y-1">
                 <label className="text-[10px] text-cyan-700 uppercase font-bold tracking-widest">Nicho de Autoridade</label>
-                <input 
+                <input
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   className="w-full bg-black industrial-border p-3 rounded text-sm text-cyan-400 focus:ring-1 focus:ring-cyan-500 outline-none"
@@ -156,7 +173,7 @@ const AuthorityValidator: React.FC = () => {
                 />
               </div>
 
-              <button 
+              <button
                 disabled={isBusy}
                 className="w-full bg-cyan-500 text-black py-4 font-bold rounded hover:bg-cyan-400 disabled:opacity-50 transition-all uppercase flex items-center justify-center gap-2 text-xs"
               >
@@ -169,13 +186,13 @@ const AuthorityValidator: React.FC = () => {
                 <h3 className="text-xs font-bold text-purple-400 uppercase">Configuração Sentinela</h3>
                 <div className={`w-2 h-2 rounded-full ${alertSettings.enabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
               </div>
-              
+
               <div className="space-y-1">
                 <label className="text-[10px] text-purple-900 uppercase font-bold">Canal de Alerta</label>
-                <select 
+                <select
                   className="w-full bg-black industrial-border p-3 rounded text-xs text-purple-300 outline-none border-purple-900/40"
                   value={alertSettings.channel}
-                  onChange={(e: any) => setAlertSettings({...alertSettings, channel: e.target.value})}
+                  onChange={(e: any) => setAlertSettings({ ...alertSettings, channel: e.target.value })}
                 >
                   <option value="WHATSAPP">WHATSAPP (Prioritário)</option>
                   <option value="EMAIL">E-MAIL (Relatório)</option>
@@ -184,21 +201,21 @@ const AuthorityValidator: React.FC = () => {
 
               <div className="space-y-1">
                 <label className="text-[10px] text-purple-900 uppercase font-bold">Destino / Contato</label>
-                <input 
+                <input
                   className="w-full bg-black industrial-border p-3 rounded text-xs text-purple-300 outline-none border-purple-900/40"
                   placeholder="+55 (11) 99999-9999"
                   value={alertSettings.contact}
-                  onChange={(e) => setAlertSettings({...alertSettings, contact: e.target.value})}
+                  onChange={(e) => setAlertSettings({ ...alertSettings, contact: e.target.value })}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[10px] text-purple-900 uppercase font-bold">Frequência</label>
-                  <select 
+                  <select
                     className="w-full bg-black industrial-border p-2 rounded text-[10px] text-purple-300 outline-none border-purple-900/40"
                     value={alertSettings.frequency}
-                    onChange={(e: any) => setAlertSettings({...alertSettings, frequency: e.target.value})}
+                    onChange={(e: any) => setAlertSettings({ ...alertSettings, frequency: e.target.value })}
                   >
                     <option value="DAILY">DIÁRIO</option>
                     <option value="WEEKLY">SEMANAL</option>
@@ -206,10 +223,10 @@ const AuthorityValidator: React.FC = () => {
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] text-purple-900 uppercase font-bold">Gatilho</label>
-                  <select 
+                  <select
                     className="w-full bg-black industrial-border p-2 rounded text-[10px] text-purple-300 outline-none border-purple-900/40"
                     value={alertSettings.trigger}
-                    onChange={(e: any) => setAlertSettings({...alertSettings, trigger: e.target.value})}
+                    onChange={(e: any) => setAlertSettings({ ...alertSettings, trigger: e.target.value })}
                   >
                     <option value="ALWAYS">SEMPRE</option>
                     <option value="DROP_ONLY">SÓ SE CAIR</option>
@@ -217,8 +234,8 @@ const AuthorityValidator: React.FC = () => {
                 </div>
               </div>
 
-              <button 
-                onClick={() => setAlertSettings({...alertSettings, enabled: !alertSettings.enabled})}
+              <button
+                onClick={() => setAlertSettings({ ...alertSettings, enabled: !alertSettings.enabled })}
                 className={`w-full py-3 font-bold rounded transition-all uppercase text-[10px] border ${alertSettings.enabled ? 'bg-purple-600 text-white border-purple-400' : 'bg-black text-purple-900 border-purple-900'}`}
               >
                 {alertSettings.enabled ? 'SENTINELA_ATIVO' : 'ATIVAR_SENTINELA'}
@@ -232,7 +249,7 @@ const AuthorityValidator: React.FC = () => {
 
         {/* Resultados */}
         <div className="lg:col-span-8 space-y-4">
-          {activeTab === 'SENTINEL' ? (
+          {activeTab === 'SENTINEL' && (
             <div className="space-y-6">
               {/* Gráfico Histórico */}
               <div className="industrial-border bg-black/60 p-6 rounded min-h-[350px]">
@@ -250,7 +267,7 @@ const AuthorityValidator: React.FC = () => {
                     <CartesianGrid strokeDasharray="3 3" stroke="#164e63" opacity={0.1} />
                     <XAxis dataKey="timestamp" stroke="#0891b2" fontSize={10} />
                     <YAxis stroke="#0891b2" fontSize={10} />
-                    <Tooltip 
+                    <Tooltip
                       contentStyle={{ backgroundColor: '#000', border: '1px solid #7c3aed', color: '#a855f7', fontSize: '10px' }}
                     />
                     <Line type="monotone" dataKey="score" stroke="#7c3aed" strokeWidth={3} dot={{ fill: '#7c3aed', r: 4 }} activeDot={{ r: 6 }} />
@@ -281,7 +298,8 @@ const AuthorityValidator: React.FC = () => {
                 </div>
               </div>
             </div>
-          ) : (
+          )}
+          {activeTab === 'PROBE' && (
             <>
               {!results.length && !isBusy && (
                 <div className="industrial-border bg-black/40 rounded h-[600px] flex flex-col items-center justify-center p-12 text-center border-dashed">
@@ -289,7 +307,7 @@ const AuthorityValidator: React.FC = () => {
                     <span className="text-cyan-900 text-2xl font-black italic">!</span>
                   </div>
                   <p className="text-cyan-900 text-sm max-w-md uppercase tracking-widest leading-relaxed">
-                    Sua marca aparece quando alguém pergunta para a IA? <br/>
+                    Sua marca aparece quando alguém pergunta para a IA? <br />
                     <span className="text-[10px] block mt-2 opacity-50 italic">Execute a sondagem para mapear sua autoridade orgânica em modelos de linguagem.</span>
                   </p>
                 </div>
@@ -342,7 +360,7 @@ const AuthorityValidator: React.FC = () => {
                       ))}
                       {isBusy && results.length < 5 && (
                         <div className="industrial-border bg-black/20 p-8 rounded flex items-center justify-center border-dashed border-cyan-900/50">
-                           <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+                          <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
                         </div>
                       )}
                     </div>
@@ -351,11 +369,11 @@ const AuthorityValidator: React.FC = () => {
                   {somScore !== null && somScore < 100 && (
                     <div className="p-6 bg-yellow-500/5 border border-yellow-500/10 rounded-lg shadow-inner">
                       <div className="flex items-center gap-2 mb-2">
-                         <div className="p-1 bg-yellow-500 text-black rounded text-[8px] font-bold">SENTINELA_ALERTA</div>
-                         <p className="text-[10px] text-yellow-500 uppercase font-black italic">Vulnerabilidade Detectada</p>
+                        <div className="p-1 bg-yellow-500 text-black rounded text-[8px] font-bold">SENTINELA_ALERTA</div>
+                        <p className="text-[10px] text-yellow-500 uppercase font-black italic">Vulnerabilidade Detectada</p>
                       </div>
                       <p className="text-xs text-yellow-600/70 font-sans leading-relaxed">
-                        {somScore === 0 
+                        {somScore === 0
                           ? "FALHA TOTAL DE AUTORIDADE. Sua marca não existe para este cluster. Implemente o SomaOS imediatamente para forçar a indexação agêntica."
                           : "VISIBILIDADE EM RISCO. Concorrentes estão 'roubando' suas perguntas. Recomendamos ativar o MODO SENTINELA para vigiar variações de rank semanal."}
                       </p>
@@ -364,6 +382,60 @@ const AuthorityValidator: React.FC = () => {
                 </div>
               )}
             </>
+          )}
+          {activeTab === 'SOCIAL' && (
+            <div className="space-y-6">
+              {!sentimentData && !isBusy && (
+                <div className="industrial-border bg-black/40 rounded h-[300px] flex flex-col items-center justify-center p-12 text-center border-dashed border-orange-900/40">
+                  <div className="w-16 h-16 border-2 border-orange-900 rounded-full flex items-center justify-center mb-4 bg-orange-950/20">
+                    <span className="text-orange-700 text-2xl">⚡</span>
+                  </div>
+                  <p className="text-orange-900 text-sm max-w-md uppercase tracking-widest">
+                    Analise o impacto da sua marca no "Training Data" (Reddit, Fóruns).<br />
+                    <span className="text-[10px] opacity-70">Execute a sondagem para ver o Brand Pulse.</span>
+                  </p>
+                </div>
+              )}
+
+              {sentimentData && (
+                <div className="space-y-4 animate-in fade-in duration-500">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="industrial-border bg-black/60 p-6 rounded text-center border-b-4 border-orange-500">
+                      <div className="text-[10px] text-cyan-700 uppercase font-bold mb-2">Social Sentiment</div>
+                      <div className={`text-4xl font-black ${sentimentData.sentimentScore > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        {sentimentData.sentimentScore > 0 ? '+' : ''}{sentimentData.sentimentScore}
+                      </div>
+                      <div className="text-[10px] text-cyan-900 mt-2 uppercase">Índice de Positividade</div>
+                    </div>
+                    <div className="industrial-border bg-black/60 p-6 rounded text-center border-b-4 border-blue-500">
+                      <div className="text-[10px] text-cyan-700 uppercase font-bold mb-2">Citation Velocity</div>
+                      <div className="text-4xl font-black text-blue-400">
+                        {sentimentData.citationVelocity}
+                      </div>
+                      <div className="text-[10px] text-cyan-900 mt-2 uppercase">Freq. de Discussão</div>
+                    </div>
+                  </div>
+
+                  <div className="industrial-border bg-black/40 p-5 rounded space-y-4">
+                    <h4 className="text-[10px] font-bold text-orange-800 uppercase tracking-widest border-b border-orange-900/30 pb-2">Tópicos em Alta</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {sentimentData.topTopics?.map((topic: string, i: number) => (
+                        <span key={i} className="px-2 py-1 bg-orange-950/30 text-orange-400 text-xs rounded border border-orange-900/30">
+                          #{topic}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="industrial-border bg-black/40 p-5 rounded space-y-2">
+                    <h4 className="text-[10px] font-bold text-cyan-800 uppercase tracking-widest border-b border-cyan-900/30 pb-2">Resumo da Análise</h4>
+                    <p className="text-xs text-cyan-500 leading-relaxed font-mono">
+                      {sentimentData.summary}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

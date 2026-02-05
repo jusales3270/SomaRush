@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
 import Terminal from '../components/Terminal';
-import { analyzeGeoReadability } from '../services/gemini';
+import { analyzeGeoReadability, saveGeoScan } from '../services/gemini';
 import { ICONS } from '../constants';
 
 const GeoScanner: React.FC = () => {
@@ -16,7 +15,7 @@ const GeoScanner: React.FC = () => {
 
     setIsScanning(true);
     setResult(null);
-    
+
     // Logs detalhados simulando o novo backend Python/Playwright
     setLogs([
       `INICIALIZANDO SOMARUSH GEO ENGINE v2.0...`,
@@ -34,8 +33,13 @@ const GeoScanner: React.FC = () => {
       // O Gemini agora recebe as instruções de sistema corretas
       // Simulamos a passagem do conteúdo renderizado enviando um contexto fictício que o Gemini analisará baseado na URL
       const data = await analyzeGeoReadability(url, `[HTML_RENDERED_BUFFER_FROM_PLAYWRIGHT]\nURL: ${url}\nDetected: Tables, Lists, Meta-tags.`);
-      
+
       setLogs(prev => [...prev, 'AUDITORIA TÉCNICA FINALIZADA COM SUCESSO.']);
+
+      // Persist to Supabase
+      await saveGeoScan(url, data);
+      setLogs(prev => [...prev, 'RESULTADO SALVO NO BANCO DE DADOS.']);
+
       setResult(data);
     } catch (error) {
       setLogs(prev => [...prev, '!ERRO CRÍTICO: FALHA NA RENDERIZAÇÃO OU API TIMEOUT.']);
@@ -52,14 +56,14 @@ const GeoScanner: React.FC = () => {
       </div>
 
       <form onSubmit={handleScan} className="flex gap-2">
-        <input 
-          type="text" 
+        <input
+          type="text"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://exemplo.com.br/pagina-produto"
           className="flex-1 bg-black industrial-border p-3 rounded text-cyan-400 placeholder-cyan-900 focus:outline-none focus:ring-1 focus:ring-cyan-400"
         />
-        <button 
+        <button
           disabled={isScanning}
           className="bg-cyan-500 text-black px-6 font-bold rounded hover:bg-cyan-400 disabled:opacity-50 transition-colors uppercase"
         >
@@ -71,7 +75,7 @@ const GeoScanner: React.FC = () => {
         <div className="space-y-4">
           <h3 className="text-xs font-bold text-cyan-800 uppercase tracking-widest">Log de Processo (Engine v2.0)</h3>
           <Terminal logs={logs} />
-          
+
           {result && (
             <div className="industrial-border bg-black/40 p-4 rounded space-y-4">
               <h3 className="text-xs font-bold text-cyan-800 uppercase tracking-widest">Alertas de Infraestrutura</h3>
