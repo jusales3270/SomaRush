@@ -2,12 +2,20 @@ import React, { useState } from 'react';
 import Terminal from '../components/Terminal';
 import { analyzeGeoReadability, saveGeoScan } from '../services/gemini';
 import { ICONS } from '../constants';
+import ExecutiveReportView from './ExecutiveReportView';
+import { useExecutiveExport } from '../src/hooks/useExecutiveExport';
+import { buildExecutiveReport } from '../src/core/reportBuilder';
+import { getBenchmarks } from '../src/core/benchmarkStorage';
+import { ExecutiveReport } from '../types';
 
 const GeoScanner: React.FC = () => {
   const [url, setUrl] = useState('');
   const [logs, setLogs] = useState<string[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [report, setReport] = useState<ExecutiveReport | null>(null);
+  const { exportPDF } = useExecutiveExport();
+  const [isExporting, setIsExporting] = useState(false);
 
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +47,12 @@ const GeoScanner: React.FC = () => {
       // Persist to Supabase
       await saveGeoScan(url, data);
       setLogs(prev => [...prev, 'RESULTADO SALVO NO BANCO DE DADOS.']);
+
+      // Construct Executive Report
+      const benchmarks = getBenchmarks();
+      const latestBench = benchmarks.length > 0 ? benchmarks[benchmarks.length - 1] : undefined;
+      const generatedReport = buildExecutiveReport(data, latestBench);
+      setReport(generatedReport);
 
       setResult(data);
     } catch (error) {
@@ -146,12 +160,62 @@ const GeoScanner: React.FC = () => {
                 </div>
               </div>
 
+              {/* PROTOCOL AUDIT SECTION */}
+              {result.protocolAudit && (
+                <div className="pt-4 border-t border-cyan-900">
+                  <h4 className="text-xs font-bold text-cyan-800 uppercase mb-3 flex items-center justify-between">
+                    <span>Protocol Compliance</span>
+                    <span className="text-cyan-400 font-black">{result.protocolAudit.score}/100</span>
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="p-2 bg-black/60 rounded flex justify-between items-center text-xs">
+                      <span className="text-cyan-700">/llm.txt</span>
+                      <span className={result.protocolAudit.llmTxt ? 'text-green-500 font-bold' : 'text-red-500 font-bold'}>
+                        {result.protocolAudit.llmTxt ? 'DETECTED' : 'MISSING'}
+                      </span>
+                    </div>
+                    <div className="p-2 bg-black/60 rounded flex justify-between items-center text-xs">
+                      <span className="text-cyan-700">ai-plugin.json</span>
+                      <span className={result.protocolAudit.aiPlugin ? 'text-green-500 font-bold' : 'text-red-500 font-bold'}>
+                        {result.protocolAudit.aiPlugin ? 'VALID' : 'MISSING'}
+                      </span>
+                    </div>
+                    <div className="p-2 bg-black/60 rounded flex justify-between items-center text-xs">
+                      <span className="text-cyan-700">mcp.json</span>
+                      <span className={result.protocolAudit.mcpJson ? 'text-green-500 font-bold' : 'text-red-500 font-bold'}>
+                        {result.protocolAudit.mcpJson ? 'VALID' : 'MISSING'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="pt-4 border-t border-cyan-900">
                 <h4 className="text-xs font-bold text-cyan-800 uppercase mb-2">Visão da Máquina (Raw Text)</h4>
                 <div className="bg-black p-3 rounded text-[10px] text-cyan-500 max-h-32 overflow-y-auto whitespace-pre-wrap leading-relaxed border border-cyan-900/50">
                   {result.rawReadingSim}
                 </div>
               </div>
+
+              {/* AGENCY SURFACE EXPORT */}
+              {report && (
+                <div className="pt-6 mt-4 border-t border-purple-900/50">
+                  <button
+                    onClick={async () => {
+                      setIsExporting(true);
+                      await exportPDF(report, "executive-report-export");
+                      setIsExporting(false);
+                    }}
+                    disabled={isExporting}
+                    className="w-full bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-black py-4 px-4 rounded transition-all transform hover:scale-[1.02] shadow-[0_0_20px_rgba(168,85,247,0.4)] disabled:opacity-50 disabled:transform-none uppercase tracking-widest flex items-center justify-center gap-3"
+                  >
+                    <ICONS.Activity className="w-5 h-5" />
+                    {isExporting ? 'Generating PDF Engine...' : 'Export Agency Report (PDF)'}
+                  </button>
+                  {/* Invisible render for the PDF engine */}
+                  <ExecutiveReportView report={report} />
+                </div>
+              )}
             </div>
           )}
         </div>

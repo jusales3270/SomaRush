@@ -1,9 +1,16 @@
 import { supabase, EDGE_FUNCTION_URL } from './supabaseClient';
+import { calculateMAI } from '../src/core/maiEngine';
+import { auditProtocols } from '../src/core/protocolAudit';
+import { saveMaiHistory } from '../src/core/maiHistory';
+import { calculateSOM } from '../src/core/somEngine';
+import { defaultPromptSet } from '../src/core/promptLibrary';
+import { generateBenchmark } from '../src/core/benchmarkEngine';
+import { saveBenchmark } from '../src/core/benchmarkStorage';
 
 const CRAWLER_URL = `${supabase.supabaseUrl}/functions/v1/crawler-engine`;
 
 // Helper to call the Edge Function proxy
-const callGeminiProxy = async (action: string, payload: Record<string, unknown>) => {
+export const callGeminiProxy = async (action: string, payload: Record<string, unknown>) => {
   const response = await fetch(EDGE_FUNCTION_URL, {
     method: 'POST',
     headers: {
@@ -51,11 +58,71 @@ export const analyzeGeoReadability = async (url: string, _simulatedContent?: str
   // 2. LOG CRAWL
   await saveCrawlLog(url, 'SUCCESS', 1, 'DIRECT', crawlData.duration_ms || 0);
 
-  // 3. ANALYZE (Gemini)
-  const result = await callGeminiProxy('geo_scan', {
-    url,
-    content: crawlData.raw_text.substring(0, 8000) // Context Window limit
-  });
+  // 3. ANALYZE (Gemini) & PROTOCOL AUDIT & MODEL SAMPLING (Parallel)
+  const runPromptBatch = async (prompts: string[]) => {
+    return prompts.map(() => `Simulated abstract response containing the brand ${url.includes('soma') ? 'SomaRush' : 'Competitor'} in context.`);
+  };
+
+  const [result, protocolAudit, rawSomResponses] = await Promise.all([
+    callGeminiProxy('geo_scan', {
+      url,
+      content: crawlData.raw_text.substring(0, 8000) // Context Window limit
+    }) as Promise<any>,
+    auditProtocols(url),
+    runPromptBatch(defaultPromptSet)
+  ]);
+
+  // Attach Protocol Audit
+  result.protocolAudit = protocolAudit;
+
+  // Calculate SOM
+  const brandExtracted = url.replace('https://', '').replace('http://', '').split('.')[0];
+  const som = calculateSOM(brandExtracted, rawSomResponses);
+  result.som = som;
+
+  // PASSO 3 - Adaptar o Pipeline Atual
+  const safe = (v?: number) => v ?? 0;
+
+  let mai;
+  try {
+    mai = calculateMAI({
+      infrastructure: safe(result.maiBreakdown?.infrastructure),
+      visibility: safe(result.maiBreakdown?.visibility),
+      recommendation: safe(result.maiBreakdown?.recommendation),
+      agentExecution: safe(result.maiBreakdown?.agentExecution),
+      protocolCompliance: protocolAudit.score, // Usando score real do protocolo
+      som: som.share // Adicionando Share of Model (v1.1.0)
+    });
+    result.mai = mai;
+  } catch (e) {
+    // ignore
+  }
+
+  // PASSO 5 - Fallback Seguro
+  if (!result.mai || result.mai.score === 0) {
+    const geoScore = result.score || 0;
+    result.mai = {
+      score: geoScore,
+      version: "fallback",
+      breakdown: {
+        infrastructure: geoScore,
+        visibility: geoScore,
+        recommendation: geoScore,
+        agentExecution: geoScore,
+        protocolCompliance: geoScore,
+      },
+      calculatedAt: new Date().toISOString(),
+    };
+  }
+
+  // PASSO 3 (Histórico Versionado) - Integrar ao Pipeline
+  if (result.mai) {
+    saveMaiHistory({
+      score: result.mai.score,
+      version: result.mai.version,
+      calculatedAt: result.mai.calculatedAt,
+    });
+  }
 
   return result;
 };
@@ -110,6 +177,31 @@ export const optimizeContent = async (text: string) => {
 export const auditAgenticReadiness = async (url: string) => {
   // Can be enhanced with Crawler data later
   return callGeminiProxy('agentic_audit', { url });
+};
+
+export const runIndustryBenchmark = async (industry: string, competitors: string[]) => {
+  // Executa análise MAI + SOM p/ múltiplos concorrentes
+  const results = await Promise.all(
+    competitors.map(async (brandUrl) => {
+      // Re-utilizamos o pipeline full (crawler + audit + MAI + SOM)
+      // Em produção, a edge function deve cachear requisições ativas p/ poupar Gemini.
+      const scan = await analyzeGeoReadability(brandUrl);
+
+      return {
+        brand: brandUrl.replace('https://', '').replace('http://', '').split('.')[0],
+        mai: scan.mai?.score || scan.score || 0,
+        som: scan.som?.share || 0,
+      };
+    })
+  );
+
+  // Consolida Ranking
+  const benchmark = generateBenchmark(industry, results);
+
+  // Persiste Snapshot (Substituir LocalStorage por Supabase.insert se escalado)
+  saveBenchmark(benchmark);
+
+  return benchmark;
 };
 
 // ============================================================================
