@@ -1,16 +1,11 @@
-
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface TerminalProps {
   logs: string[];
 }
 
 const Terminal: React.FC<TerminalProps> = ({ logs }) => {
-  const endRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+  // Scroll automático removido - apenas scroll manual pelo usuário
 
   return (
     <div className="bg-black/80 industrial-border p-4 rounded h-64 overflow-y-auto font-mono text-sm space-y-1">
@@ -25,7 +20,6 @@ const Terminal: React.FC<TerminalProps> = ({ logs }) => {
       {logs.length === 0 && (
         <div className="text-cyan-900 italic">SISTEMA EM ESPERA. AGUARDANDO ENTRADA...</div>
       )}
-      <div ref={endRef} />
       <div className="inline-block w-2 h-4 bg-cyan-400 cursor-blink"></div>
     </div>
   );

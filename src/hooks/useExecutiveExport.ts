@@ -1,6 +1,6 @@
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
-import { ExecutiveReport } from '../types';
+import { ExecutiveReport } from '../../types';
 
 export const useExecutiveExport = () => {
     const exportPDF = async (report: ExecutiveReport, elementId: string) => {

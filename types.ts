@@ -55,12 +55,25 @@ export interface BenchmarkSnapshot {
   generatedAt: string;
 }
 
+export interface PlatformScores {
+  chatgpt: number;
+  gemini: number;
+  perplexity: number;
+}
+
 export interface GeoScanResult {
   url: string;
   score: number;
   mai?: MaiResult;
   protocolAudit?: ProtocolAuditResult;
   som?: SomResult;
+  platformReadiness?: PlatformScores;
+  filesAudit?: {
+    llmTxt: boolean;
+    aiPlugin: boolean;
+    mcpJson: boolean;
+  };
+  actionPlan?: Array<{ priority: 'high' | 'medium' | 'low'; task: string }>;
 
   semanticAnalysis: {
     headers: boolean;

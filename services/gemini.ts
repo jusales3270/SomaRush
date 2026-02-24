@@ -1,4 +1,4 @@
-import { supabase, EDGE_FUNCTION_URL } from './supabaseClient';
+import { supabase, EDGE_FUNCTION_URL, SUPABASE_URL } from './supabaseClient';
 import { calculateMAI } from '../src/core/maiEngine';
 import { auditProtocols } from '../src/core/protocolAudit';
 import { saveMaiHistory } from '../src/core/maiHistory';
@@ -7,7 +7,7 @@ import { defaultPromptSet } from '../src/core/promptLibrary';
 import { generateBenchmark } from '../src/core/benchmarkEngine';
 import { saveBenchmark } from '../src/core/benchmarkStorage';
 
-const CRAWLER_URL = `${supabase.supabaseUrl}/functions/v1/crawler-engine`;
+const CRAWLER_URL = `${SUPABASE_URL}/functions/v1/crawler-engine`;
 
 // Helper to call the Edge Function proxy
 export const callGeminiProxy = async (action: string, payload: Record<string, unknown>) => {
@@ -66,7 +66,9 @@ export const analyzeGeoReadability = async (url: string, _simulatedContent?: str
   const [result, protocolAudit, rawSomResponses] = await Promise.all([
     callGeminiProxy('geo_scan', {
       url,
-      content: crawlData.raw_text.substring(0, 8000) // Context Window limit
+      content: crawlData.raw_text.substring(0, 8000), // Context Window limit
+      // Solicitar scores segmentados por plataforma
+      requirePlatformScores: true
     }) as Promise<any>,
     auditProtocols(url),
     runPromptBatch(defaultPromptSet)
@@ -74,6 +76,34 @@ export const analyzeGeoReadability = async (url: string, _simulatedContent?: str
 
   // Attach Protocol Audit
   result.protocolAudit = protocolAudit;
+  
+  // Attach Files Audit
+  result.filesAudit = {
+    llmTxt: protocolAudit.llmTxt,
+    aiPlugin: protocolAudit.aiPlugin,
+    mcpJson: protocolAudit.mcpJson,
+  };
+  
+  // Platform Readiness Scores (from API or fallback)
+  if (!result.platformReadiness) {
+    // Fallback: distribuir score GEO entre plataformas
+    const baseScore = result.score || 0;
+    // Penalidade de 15% em Machine Readability se arquivos de protocolo ausentes
+    const missingFilesCount = [protocolAudit.llmTxt, protocolAudit.aiPlugin, protocolAudit.mcpJson].filter(v => !v).length;
+    const machineReadabilityPenalty = missingFilesCount > 0 ? 0.15 * missingFilesCount : 0;
+    const adjustedScore = Math.max(0, Math.round(baseScore * (1 - machineReadabilityPenalty)));
+    
+    result.platformReadiness = {
+      chatgpt: Math.round(adjustedScore * 0.9), // ChatGPT favorece schemas e plugins
+      gemini: Math.round(adjustedScore * 1.0),  // Gemini favorece indexação Google
+      perplexity: Math.round(adjustedScore * 0.85), // Perplexity favorece citações
+    };
+  }
+  
+  // Action Plan generation if not provided by API
+  if (!result.actionPlan) {
+    result.actionPlan = generateActionPlan(result.score || 0, protocolAudit);
+  }
 
   // Calculate SOM
   const brandExtracted = url.replace('https://', '').replace('http://', '').split('.')[0];
@@ -311,6 +341,43 @@ export const getDashboardStats = async () => {
     storePosition: agenticAudits[0]?.full_result?.storeRank?.position ?? null,
     lastScanDate: geoScans[0]?.created_at ?? null,
   };
+};
+
+// ============================================================================
+// ACTION PLAN GENERATOR
+// ============================================================================
+
+const generateActionPlan = (score: number, protocolAudit: any) => {
+  const plan: Array<{ priority: 'high' | 'medium' | 'low'; task: string }> = [];
+  
+  // High priority items
+  if (score < 50) {
+    plan.push({ priority: 'high', task: 'Implementar estrutura semântica H1-H6 para melhor legibilidade por crawlers' });
+    plan.push({ priority: 'high', task: 'Adicionar Schema.org JSON-LD em páginas críticas' });
+  }
+  if (!protocolAudit.llmTxt) {
+    plan.push({ priority: 'high', task: 'Criar arquivo /llm.txt para orientação de crawlers de IA' });
+  }
+  if (!protocolAudit.aiPlugin) {
+    plan.push({ priority: 'high', task: 'Implementar /.well-known/ai-plugin.json para compatibilidade ChatGPT' });
+  }
+  
+  // Medium priority items
+  if (score < 70) {
+    plan.push({ priority: 'medium', task: 'Otimizar tabelas e listas para parseamento por agentes' });
+    plan.push({ priority: 'medium', task: 'Revisar meta-descriptions para maior clareza contextual' });
+  }
+  if (!protocolAudit.mcpJson) {
+    plan.push({ priority: 'medium', task: 'Adicionar /.well-known/mcp.json para MCP Handshake' });
+  }
+  
+  // Low priority items
+  if (score >= 70) {
+    plan.push({ priority: 'low', task: 'Manter estrutura atual - monitorar novas diretrizes de agentes' });
+    plan.push({ priority: 'low', task: 'Considerar implementação de API específica para consumo por IA' });
+  }
+  
+  return plan.length > 0 ? plan : [{ priority: 'low', task: 'Nenhuma ação crítica identificada - manter monitoramento' }];
 };
 
 // ============================================================================
